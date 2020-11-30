@@ -1,0 +1,285 @@
+---
+title: "UTS"
+author: "Natasya Afira"
+date: "10/27/2020"
+output: word_document
+---
+
+---
+title: "UTS DMKM"
+author: "Natasya Afira"
+date: "10/27/2020"
+output: word_document
+---
+
+##Import Library
+```{r}
+library(randomForest)
+library(caret)
+library(psych)
+```
+
+
+##Import Data
+```{r}
+data <- read.csv("C:/Python/Python38/Scripts/SomervilleHappinessSurvey2015.txt")
+head(data)
+str(data)
+```
+
+#DATA PREPROCESSING
+```{r}
+data$Decision <- ifelse(test=data$Decision==0, "unhappy", "happy")
+data$Decision <- as.factor(data$Decision)
+data$InfoCityServ <- as.factor(data$InfoCityServ)
+data$Housing <- as.factor(data$Housing)
+data$PSchools <- as.factor(data$PSchools)
+data$Trust <- as.factor(data$Trust)
+data$Maintenance <- as.factor(data$Maintenance)
+data$Social <- as.factor(data$Social)
+str(data)
+```
+
+
+
+#Mengetahui Jumlah Missing Value
+```{r}
+library(dplyr)
+sapply(data, function(x) sum(is.na(x)))
+```
+#Visualisasi Missing Value
+```{r}
+library(visdat)
+vis_miss(data)
+```
+
+##Definisi model
+```{r}
+
+#Split Validation
+set.seed(1234)
+indexes=createDataPartition(data$Decision, p=0.8, list = F)
+train <- data[indexes,]
+test<-data[-indexes,]
+
+#Cross Validation
+library(caret)
+myControl <- trainControl(
+  method = "cv",
+  number = 8,
+  verboseIter = FALSE
+)
+```
+
+```{r}
+library(e1071)
+nb <- naiveBayes(Decision~., data = train)
+print(nb)
+```
+
+```{r}
+pred_nb <- predict(nb, newdata = test)
+confusionMatrix(pred_nb, test$Decision)
+```
+
+```{r}
+nb_cv <- train(Decision~., data=train,
+               method='naive_bayes',
+               trControl=myControl)
+print(nb_cv)
+```
+
+```{r}
+confusionMatrix(predict(nb_cv, newdata=test) %>% as.factor(),test$Decision %>% as.factor())
+```
+
+```{r}
+library(adabag)
+ada <- boosting(Decision~., data=train, 
+                mfinal=10, control=rpart.control(maxdepth=1),
+                coeflearn='Breiman')
+pred_ada <- predict(ada, test)$class
+confusionMatrix(as.factor(pred_ada), test$Decision)
+```
+
+#RANDOM FOREST
+```{r}
+library(randomForest)
+
+#SPLIT VALIDATION
+set.seed(234)
+indexes=createDataPartition(data$Decision, p=0.8, list = F)
+train <- data[indexes,]
+test<-data[-indexes,]
+rf <- randomForest(Decision~., data = train)
+print(rf)
+pred_rf <- predict(rf, test)
+confusionMatrix(table(pred_rf, test$Decision))
+```
+
+```{r}
+control <- trainControl(method="repeatedcv", number=10, repeats=3, search="random")
+set.seed(1234)
+x <- data[,2:7]
+x
+metric <- "Accuracy"
+mtry <- sqrt(ncol(x))
+rf_random <- train(Decision~., data=data, method="rf", metric=metric, tuneLength=15, trControl=control)
+print(rf_random)
+plot(rf_random)
+```
+```{r}
+
+control <- trainControl(method="repeatedcv", number=10, repeats=3, search="grid")
+set.seed(1234)
+tunegrid <- expand.grid(.mtry=c(1:15))
+rf_gridsearch <- train(Decision~., data=data, method="rf", metric=metric, tuneGrid=tunegrid, trControl=control)
+print(rf_gridsearch)
+plot(rf_gridsearch)
+```
+
+
+```{r}
+# variable important
+varImpPlot(rf)
+```
+
+
+```{r}
+#CROSS VALIDATION
+
+library(caret)
+set.seed(234)
+myControl <- trainControl(
+  method = "cv",
+  number = 8,
+  verboseIter = FALSE
+)
+set.seed(234)
+indexes=createDataPartition(data$Decision, p=0.8, list = F)
+train <- data[indexes,]
+test<-data[-indexes,]
+
+set.seed(234)
+rf_cv <- train(Decision~., data=train,
+               method='rf',
+               trControl=myControl)
+
+pred_rf_cv <- predict(rf_cv, test)
+confusionMatrix(table(pred_rf_cv, test$Decision))
+
+```
+```{r}
+library(caret)
+set.seed(234)
+myControl <- trainControl(
+  method = "cv",
+  number = 8,
+  verboseIter = FALSE
+)
+set.seed(234)
+indexes=createDataPartition(data$Decision, p=0.8, list = F)
+train <- data[indexes,]
+test<-data[-indexes,]
+
+set.seed(234)
+rf_cv <- train(Decision~., data=train,
+               method='rf',
+               trControl=myControl)
+
+pred_rf_cv <- predict(rf_cv, test)
+confusionMatrix(table(pred_rf_cv, test$Decision))
+```
+```{r}
+library(pROC)
+
+par(pty="s") 
+
+## Kalo mau bandingin metode lain, ganti pred_ada
+adaROC <- roc(ifelse(test$Decision == "No", 0, 1), ifelse(pred_ada == "No", 0, 1), plot=TRUE, print.auc=TRUE, col="green", lwd =4, legacy.axes=TRUE, main="ROC Curves")
+
+## Kalo mau bandingin metode lain, ganti pred_lr
+nbROC <- roc(ifelse(test$Decision == "No", 0, 1), ifelse(pred_lr == "No", 0, 1), plot=TRUE, print.auc=TRUE, col="blue", lwd = 4, print.auc.y=0.4, legacy.axes=TRUE, add = TRUE)
+
+
+legend("bottomright", legend=c("Adaboost","LR"),col=c("green", "blue"),lwd=4)
+```
+
+
+
+##Custom Tree
+```{r}
+set.seed(1234)
+custom<-tuneRF(train[,-1],
+                train[,1], 
+                stepFactor = 0.5, #besarnya peningkatan mtry tiap iterasi
+                plot = TRUE, 
+                ntreeTry = 1000, #banyak pohon
+                trace = TRUE,  
+                improve = 0.05)
+```
+
+Terlihat dari plot setelan, OOB terendah berada pada **mtry = 1**.
+
+## Membuat model dengan mtry = 1
+```{r}
+set.seed(1234)
+indexes=createDataPartition(data$Decision, p=0.8, list = F)
+train <- data[indexes,]
+test<-data[-indexes,]
+library(randomForest)
+newmodel <- randomForest(Decision~., data = train, mtry = 1, importance = TRUE, proximity = TRUE)
+newmodel
+```
+
+#### Confusion matrix mtry = 1
+Terlihat dari model hasil perubahan mtry, akurasi model meningkat sebanyak 
+```{r}
+newprediction<-predict(newmodel,test)
+confusionMatrix(table(newprediction, test$Decision))
+```
+
+##Regresi Logistik
+
+```{r}
+modellr<-glm(Decision~., data=train, family = "binomial")
+summary(modellr)
+```
+
+```{r}
+prediksilogreg <- predict(modellr, test, type="response") #output berupa peluang
+prediksilogreg
+pred <- ifelse(prediksilogreg>0.5, 1, 0)
+pred
+confusionMatrix(table(pred, test$Decision))
+```
+```{r}
+library(caret)
+set.seed(1234)
+myControl <- trainControl(
+  method = "cv",
+  number = 8,
+  verboseIter = FALSE
+)
+set.seed(1234)
+indexes=createDataPartition(data$Decision, p=0.9, list = F)
+train <- data[indexes,]
+test<-data[-indexes,]
+
+set.seed(1234)
+rf_cv <- train(Decision~., data=train,
+               method='rf',
+               trControl=myControl)
+
+pred_rf_cv <- predict(rf_cv, test)
+confusionMatrix(table(pred_rf_cv, test$Decision))
+```
+```{r}
+install.packages("neuralnet")
+library(neuralnet)
+nn=neuralnet(Decision~.,data=data, hidden=5,act.fct = "logistic",
+                linear.*output = FALSE)
+```
+
+
+
